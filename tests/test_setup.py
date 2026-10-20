@@ -36,9 +36,14 @@ if cmd=='brew':
  elif a==['--prefix']: print(prefix)
  elif a[:2]==['list','--formula']: sys.exit(0 if (state/a[-1]).exists() else 1)
  elif a[:1]==['install']:
+  if os.environ.get('MOCK_PERMISSION_FORMULA')==a[-1]: print('Error: Permission denied @ dir_s_mkdir - mock/ruby');sys.exit(1)
+  if os.environ.get('MOCK_NETWORK_FORMULA')==a[-1] and not (state/'network-once').exists():
+   (state/'network-once').touch();print('curl: (6) Could not resolve host');sys.exit(1)
   (state/a[-1]).touch()
   if a[-1]=='mysql@8.4' and not (prefix/'bin/mysql').exists(): (prefix/'bin/mysql').symlink_to(prefix/'bin/mock')
- elif a==['doctor'] and os.environ.get('MOCK_DOCTOR_FAIL'): sys.exit(1)
+ elif a==['doctor'] and os.environ.get('MOCK_DOCTOR_FAIL'): print('Error: doctor failed');sys.exit(1)
+ elif a==['doctor'] and os.environ.get('MOCK_DOCTOR_WARN'): print('Warning: You have unlinked kegs: ruby');sys.exit(1)
+ elif a[:1]==['deps']: print('runtime-lib')
  elif a[:2]==['services','list']: print('Name Status User File')
  else: print('mock brew verified')
 elif cmd=='uname': print('Darwin' if a==['-s'] else 'arm64')
@@ -58,7 +63,11 @@ elif cmd=='curl':
    shutil.copyfile(src,a[a.index('-o')+1])
   else:sys.exit(22)
 elif cmd=='git': print('mock git')
-elif cmd=='lsof': sys.exit(1)
+elif cmd=='lsof':
+ if '-Fn' in a:
+  port=next(arg.split(':')[-1] for arg in a if arg.startswith('-iTCP:'))
+  print('p123\nn'+('0.0.0.0:' if os.environ.get('MOCK_EXPOSED') else '127.0.0.1:')+port)
+ else:sys.exit(1)
 elif cmd=='sleep':time.sleep(min(float(a[0]),.02))
 elif cmd in ('open','launchctl'):pass
 elif cmd=='mysqld':
@@ -66,7 +75,9 @@ elif cmd=='mysqld':
   (root/'state/mysql/mysql').mkdir(parents=True,exist_ok=True)
   import socket
   s=socket.socket(socket.AF_UNIX);s.bind(str(root/'state/mysql.sock'));s.close()
-elif cmd=='mysql': print('mock SQL success')
+elif cmd=='mysql':
+ if os.environ.get('MOCK_MYSQL_AUTH_FAIL'):print('Access denied');sys.exit(1)
+ print('mock SQL success')
 elif cmd=='redis-server': pass
 elif cmd=='redis-cli': print('PONG')
 elif cmd=='docker':
@@ -86,7 +97,7 @@ elif cmd=='flutter':
  if a[:1]==['create']: pathlib.Path(a[-1]).mkdir(parents=True,exist_ok=True)
  elif a[:1]==['build'] and os.environ.get('MOCK_BUILD_FAIL'): sys.exit(1)
  else: print('mock flutter')
-elif cmd in ('node','npm','dart'): print('mock '+cmd+' version')
+elif cmd in ('node','npm','dart','pod'): print('mock '+cmd+' version')
 elif cmd in ('fzf','starship'): pass
 else: print('unhandled mock',cmd,a);sys.exit(1)
 '''
@@ -100,7 +111,7 @@ for f in list((BASE/'scripts').glob('*.sh'))+list((BASE/'docker').glob('*.sh')):
 with tempfile.TemporaryDirectory(prefix='mst-',dir='/private/tmp') as temp:
  t=pathlib.Path(temp);home=t/'h';home.mkdir();prefix=t/'p';(prefix/'bin').mkdir(parents=True)
  mock=prefix/'bin/mock';mock.write_text(MOCK);mock.chmod(0o700)
- for name in ['brew','uname','sysctl','df','sw_vers','xcode-select','xcrun','curl','git','lsof','open','sleep','launchctl','redis-cli','docker','uv','flutter','dart','node','npm','fzf','starship']:
+ for name in ['brew','uname','sysctl','df','sw_vers','xcode-select','xcrun','curl','git','lsof','open','sleep','launchctl','redis-cli','docker','uv','flutter','dart','node','npm','fzf','starship','pod']:
   (prefix/'bin'/name).symlink_to(mock)
  for name,binary in [('python@3.13','python3.13'),('redis','redis-server'),('mysql@8.4','mysqld')]:
   d=prefix/'opt'/name/'bin';d.mkdir(parents=True)
@@ -140,8 +151,36 @@ with tempfile.TemporaryDirectory(prefix='mst-',dir='/private/tmp') as temp:
  (prefix/'var/mysql/mysql').mkdir(parents=True)
  p=run();check('preexisting database skip',p.returncode==0,p.stdout[-3000:])
  latest=max((root/'logs').glob('*.tsv'),key=lambda p:p.stat().st_mtime_ns).read_text()
- check('existing MySQL is not reset','MySQL\t待人工操作' in latest,latest)
- check('existing Redis is preserved','Redis\t部分完成' in latest,latest)
+ check('existing MySQL is not reset','MySQL\t成功' in latest,latest)
+ check('existing Redis is preserved','Redis\t成功' in latest,latest)
+
+ p=run({'MOCK_DOCTOR_WARN':'1'});check('doctor warnings do not fail setup',p.returncode==0,p.stdout[-1500:])
+ latest=max((root/'logs').glob('*.tsv'),key=lambda p:p.stat().st_mtime_ns).read_text()
+ check('doctor warnings remain visible','Homebrew doctor\t部分完成' in latest,latest)
+ p=run({'MOCK_DOCTOR_FAIL':'1'});check('doctor real errors still fail',p.returncode==1,p.stdout[-1500:])
+ p=run({'MOCK_MYSQL_AUTH_FAIL':'1'});check('existing password is never reset',p.returncode==0,p.stdout[-1500:])
+ latest=max((root/'logs').glob('*.tsv'),key=lambda p:p.stat().st_mtime_ns).read_text()
+ check('existing auth mismatch requests manual action','MySQL\t待人工操作' in latest,latest)
+ p=run({'MOCK_EXPOSED':'1'});check('public listener fails validation',p.returncode==1,p.stdout[-1500:])
+ latest=max((root/'logs').glob('*.tsv'),key=lambda p:p.stat().st_mtime_ns).read_text()
+ check('public listener reported explicitly','MySQL监听\t失败' in latest and 'Redis监听\t失败' in latest,latest)
+ # A local permission error must not masquerade as a mirror outage or trigger a retry.
+ (prefix/'mockstate/git').unlink();permission_trace=t/'permission.jsonl'
+ p=run({'MOCK_PERMISSION_FORMULA':'git','MOCK_TRACE':str(permission_trace)})
+ check('permission error remains a hard failure',p.returncode==1,p.stdout[-1500:])
+ events=[json.loads(line) for line in permission_trace.read_text().splitlines()]
+ attempts=[e for e in events if e['phase']=='start' and e['cmd']=='brew' and e['args']==['install','git']]
+ check('permission error never retries another mirror',len(attempts)==1,str(attempts))
+ latest=max((root/'logs').glob('*.tsv'),key=lambda p:p.stat().st_mtime_ns).read_text()
+ check('permission report gives an actionable cause','本地权限/链接错误' in latest and 'sudo/chown' in latest,latest)
+ fetches=[e for e in events if e['phase']=='start' and e['cmd']=='brew' and e['args'][:1]==['fetch'] and '--formula' in e['args']]
+ check('prefetch excludes source build dependencies',bool(fetches) and all('--deps' not in e['args'] and 'runtime-lib' in e['args'] for e in fetches),str(fetches))
+ network_trace=t/'network.jsonl';p=run({'MOCK_NETWORK_FORMULA':'git','MOCK_TRACE':str(network_trace)})
+ check('transient network fallback recovers',p.returncode==0,p.stdout[-1500:])
+ events=[json.loads(line) for line in network_trace.read_text().splitlines()]
+ attempts=[e for e in events if e['phase']=='start' and e['cmd']=='brew' and e['args']==['install','git']]
+ check('network error retries exactly once',len(attempts)==2,str(attempts))
+ check('working CocoaPods is reused without Ruby upgrade',not any(e['phase']=='start' and e['cmd']=='brew' and e['args']==['install','cocoapods'] for e in events))
  # Cover SDK metadata -> architecture -> checksum -> actual ditto extraction.
  (prefix/'bin/flutter').unlink();(prefix/'bin/dart').unlink()
  archive=t/'flutter.zip'
@@ -231,4 +270,13 @@ if fixture.exists():
  for arch,fragment in [('arm64','arm64'),('x86_64','flutter_macos_')]:
   out=subprocess.check_output([os.sys.executable,'-c',code,str(fixture),arch],text=True).splitlines()
   check('live release parser '+arch,len(out)==2 and fragment in out[0] and len(out[1])==64)
+with tempfile.TemporaryDirectory(prefix='msios-',dir='/private/tmp') as temp:
+ t=pathlib.Path(temp);(t/'apps/Xcode.app').mkdir(parents=True);(t/'root/state/flutter_smoke').mkdir(parents=True)
+ stage=SOURCE[SOURCE.index('stage_flutter_platforms() {'):SOURCE.index('\nrecord "Homebrew 源"')].replace('/Applications/',str(t/'apps')+'/')
+ for available in [True,False]:
+  report=t/('ios-'+str(available)+'.tsv')
+  stub="flutter() { return 0; }\nxcrun() { printf '%s\\n' '"+('iOS 26.5 - runtime-id' if available else '== Runtimes ==')+"'; }"
+  script='set -Eeuo pipefail\nROOT='+str(t/'root')+'\nTMP='+str(t)+'\nHOME='+str(t)+'\nREPORT='+str(report)+"\nrecord() { printf '%s\\t%s\\t%s\\n' \"$1\" \"$2\" \"$3\" >> \"${REPORT}\"; }\n"+stub+'\n'+stage+'\nstage_flutter_platforms'
+  out=subprocess.run(['/bin/bash','-c',script],capture_output=True,text=True)
+  check('iOS existing Xcode '+('runtime ready' if available else 'runtime missing'),out.returncode==0 and ('iOS\t部分完成' if available else '完整 Xcode 已存在') in report.read_text(),out.stdout+out.stderr)
 print(json.dumps({'passed':len(results),'tests':results},ensure_ascii=False,indent=2))

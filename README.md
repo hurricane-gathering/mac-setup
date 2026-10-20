@@ -45,7 +45,7 @@ bash mac-setup/scripts/setup.sh auto
 
 | 工作 | 并行与依赖关系 |
 |---|---|
-| Homebrew 公式/依赖、Docker Desktop、其他桌面应用 | 三组并行预下载，复用 Homebrew 缓存及校验机制 |
+| Homebrew 公式/运行时依赖、Docker Desktop、其他桌面应用 | 三组并行预下载，跳过源代码构建依赖（如仅用于编译的 Go），复用缓存及校验机制 |
 | Docker / ROS | Docker 安装后立即启动，拉镜像和容器验证与其余工作重叠 |
 | Flutter SDK / Web | Python 就绪即启动；已有 Python 时不等其他公式装完；下载、校验、解压、Web 构建与其他任务重叠 |
 | uv / Python、Redis、MySQL | 各自依赖就绪后独立后台运行 |
@@ -68,14 +68,24 @@ MAC_SETUP_JOBS=8 MAC_SETUP_DOWNLOADS=8 bash mac-setup/scripts/setup.sh auto
 
 - 检查系统、架构、磁盘、工具和已有 shell 文件；拒绝 Rosetta 终端和 root 用户。
 - 安装或复用 Cursor、Chrome、微信、飞书、Docker Desktop、Mos、Android Studio；读取应用版本并请求启动。请求启动不代表完成登录和 GUI 功能验收。
-- Homebrew 使用预编译 bottle；公式和依赖、Docker Desktop、其他 Cask 分组并行预下载，安装始终由前台单个进程执行。已安装公式不自动升级；预下载失败不阻断其他任务，前台公式安装最多切回官方源重试一次。
+- Homebrew 使用预编译 bottle；公式与缺失的运行时依赖、Docker Desktop、其他 Cask 分组并行预下载，安装始终由前台单个进程执行。已安装公式不自动升级；预下载失败不阻断其他任务，仅网络或校验错误会切回官方源重试一次；权限、链接和其他本地错误保留日志，不盲目换源。
 - 默认选 Node 24 LTS、MySQL 8.4 LTS；Node 路径独立，不删除其他版本。未安装版本管理器；项目需多版本时另行选用 fnm 等工具。npm registry 不修改。
 - uv 自身和 Python 3.13 通过 Homebrew 安装，避免把 PyPI 镜像错误地当成 Python 解释器下载镜像。建立独立 Python 测试项目和虚拟环境，安装并导入 packaging。已有 uv 配置保留；无已有用户配置时写入本工具的环境文件。
-- 全新数据库使用独立数据目录和配置，Redis/MySQL 只绑定 127.0.0.1，MySQL 关闭 X Protocol。检测到已有数据、CLI 或占用端口时保留并报告人工处理，不重置旧 root 密码。MySQL 使用默认现代认证，不降级认证插件；旧客户端可能需要升级。
+- 全新数据库使用独立数据目录和配置，Redis/MySQL 只绑定 127.0.0.1，MySQL 关闭 X Protocol。检测到已有数据、CLI 或占用端口时先保留，并只读验证指定 MySQL 登录、Redis PING 和监听地址；认证不符或服务未启动时报告人工处理，不重置旧 root 密码，也不强制替换现有服务端版本。MySQL 使用默认现代认证，不降级认证插件；旧客户端可能需要升级。
 - 新建 MySQL 采用原任务要求的本地弱口令；仅适用于隔离的本地开发，严禁生产或端口转发。SQL 通过后重启再验证 TCP 认证。Homebrew 初始化的默认数据库不作为本脚本服务使用，勿再运行 `brew services start mysql@8.4` 启动另一套实例。
 - ROS 使用原生多架构官方 `ros:jazzy-ros-base`，`ros-jazzy-dev` 长期容器运行 `sleep infinity`，自动重启策略 `unless-stopped`；仅挂载 `~/Developer/ros2_ws`。不映射端口，不启用 privileged 或 host 网络。验证 ROS 命令、环境和停止/启动后的持久性，再用可删除的临时验证容器读取同一文件。
 - Flutter stable 从发行元数据选择架构，并校验 SHA256；校验值来自所选发行源，选择镜像意味着信任镜像维护方。保留已有可用 Flutter。安装到 `~/Developer/flutter`；实际创建测试项目并构建 Web，具备完整 Xcode 时尝试 macOS 构建。
 - zsh 使用 autosuggestions、fzf、starship、syntax-highlighting；本工具加载块中语法高亮最后加载。既有第三方插件可能仍需手工检查。修改前备份、source 行不重复、zsh PATH 去重；不改默认 shell。
+
+## 已有环境与诊断警告
+
+已可运行的 CocoaPods 会直接复用，避免为安装另一个 CocoaPods 而升级 Ruby。脚本仍实际检查 `pod --version` 和 Homebrew Ruby 的可用性。MySQL 和 Redis 已存在时只做读取和连接检查，不重启、不重置密码；账号认证不符会明确列为待人工操作，非回环监听会列为失败。
+
+`brew doctor` 的 `Warning:`（例如废弃公式、未链接 Ruby）属于维护警告，记录为“部分完成”，不会单独导致初始化返回失败。真实诊断异常或实际工具验证失败仍会返回失败。警告全文留在任务日志中，不会通过改写状态隐藏权限问题。
+
+安装日志出现 `Permission denied` 等本地权限错误时，不再换镜像源重试，也不自动执行 sudo/chown。先查看对应安装日志，并以 `brew link --dry-run ruby`、`ls -ld "$(brew --prefix)/lib/ruby"` 等只读检查确认具体路径；是否调整既有目录权限应由使用者审阅后决定。
+
+完整 Xcode 已存在时，iOS 报告会区分“runtime 可用但尚未构建”和“缺少可用 runtime”；不会再次要求安装已经存在的 Xcode。`flutter doctor` 的 Android 许可仍须本人阅读并接受。
 
 ## 必须人工完成的步骤
 

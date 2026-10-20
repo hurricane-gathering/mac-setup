@@ -18,6 +18,20 @@ PASS uv install failure propagates to report
 PASS preexisting database skip
 PASS existing MySQL is not reset
 PASS existing Redis is preserved
+PASS doctor warnings do not fail setup
+PASS doctor warnings remain visible
+PASS doctor real errors still fail
+PASS existing password is never reset
+PASS existing auth mismatch requests manual action
+PASS public listener fails validation
+PASS public listener reported explicitly
+PASS permission error remains a hard failure
+PASS permission error never retries another mirror
+PASS permission report gives an actionable cause
+PASS prefetch excludes source build dependencies
+PASS transient network fallback recovers
+PASS network error retries exactly once
+PASS working CocoaPods is reused without Ruby upgrade
 PASS fresh Flutter SDK download and checksum
 PASS SDK extraction executable
 PASS parallel DAG completes
@@ -45,8 +59,10 @@ PASS SDK throughput selector cn
 PASS SDK throughput selector global
 PASS live release parser arm64
 PASS live release parser x86_64
+PASS iOS existing Xcode runtime ready
+PASS iOS existing Xcode runtime missing
 {
-  "passed": 47,
+  "passed": 63,
   "tests": [
     "syntax setup.sh",
     "syntax verify.sh",
@@ -68,6 +84,20 @@ PASS live release parser x86_64
     "preexisting database skip",
     "existing MySQL is not reset",
     "existing Redis is preserved",
+    "doctor warnings do not fail setup",
+    "doctor warnings remain visible",
+    "doctor real errors still fail",
+    "existing password is never reset",
+    "existing auth mismatch requests manual action",
+    "public listener fails validation",
+    "public listener reported explicitly",
+    "permission error remains a hard failure",
+    "permission error never retries another mirror",
+    "permission report gives an actionable cause",
+    "prefetch excludes source build dependencies",
+    "transient network fallback recovers",
+    "network error retries exactly once",
+    "working CocoaPods is reused without Ruby upgrade",
     "fresh Flutter SDK download and checksum",
     "SDK extraction executable",
     "parallel DAG completes",
@@ -94,6 +124,8 @@ PASS live release parser x86_64
     "SDK throughput selector cn",
     "SDK throughput selector global",
     "live release parser arm64",
-    "live release parser x86_64"
+    "live release parser x86_64",
+    "iOS existing Xcode runtime ready",
+    "iOS existing Xcode runtime missing"
   ]
 }

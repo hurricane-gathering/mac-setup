@@ -145,12 +145,56 @@ fi
 printf 'eval "$(%q shellenv)"\n' "${PREFIX}/bin/brew" >> "${ENVFILE}"
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_CURL_RETRIES=2 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_DOWNLOAD_CONCURRENCY=${DOWNLOADS}
 ensure_formula() {
-  local f="$1"
+  local f="$1" install_log="${ROOT}/logs/${STAMP}-install-${1//\//_}.log"
   brew list --formula "${f}" >/dev/null 2>&1 && return 0
-  if brew install "${f}"; then return 0; fi
-  note "${f} 安装失败；移除本次镜像覆盖后用官方源重试一次"
-  if env -u HOMEBREW_API_DOMAIN -u HOMEBREW_BOTTLE_DOMAIN -u HOMEBREW_BREW_GIT_REMOTE brew install "${f}"; then return 0; fi
-  record "${f}" 失败 '镜像与官方源安装均失败，检查日志和代理'; return 1
+  if brew install "${f}" 2>&1 | tee "${install_log}"; then return 0; fi
+  if grep -Eiq 'Permission denied|not writable|Operation not permitted|EACCES|not owned by|do not have permission' "${install_log}"; then
+    record "${f}" 失败 "本地权限/链接错误，不会换源重试；检查 brew doctor 和 brew link --dry-run；详情 ${install_log}。脚本不执行 sudo/chown。"
+    return 1
+  fi
+  if ! grep -Eiq 'curl:|HTTP[ /]+[45][0-9][0-9]|Failed to download|Download failed|Could not resolve|timed out|SSL|TLS|Connection|checksum mismatch' "${install_log}"; then
+    record "${f}" 失败 "非网络安装错误，不盲目重试；查看 ${install_log}"
+    return 1
+  fi
+  note "${f} 下载失败；仅对网络/校验问题切回官方源重试一次"
+  if env -u HOMEBREW_API_DOMAIN -u HOMEBREW_BOTTLE_DOMAIN -u HOMEBREW_BREW_GIT_REMOTE brew install "${f}" 2>&1 | tee -a "${install_log}"; then return 0; fi
+  record "${f}" 失败 "两次安装均未完成；查看 ${install_log}"; return 1
+}
+
+stage_brew_doctor() {
+  local diagnostic="${TMP}/doctor.txt"
+  if brew doctor > "${diagnostic}" 2>&1; then
+    cat "${diagnostic}"; record 'Homebrew doctor' 成功 '未发现诊断问题'
+  else
+    cat "${diagnostic}"
+    if grep -q '^Warning:' "${diagnostic}" && ! grep -q '^Error:' "${diagnostic}"; then
+      record 'Homebrew doctor' 部分完成 '发现维护警告；不等于安装失败，详情见 brew-check.log；不会自动删除旧公式或强制链接 Ruby'
+    else record 'Homebrew doctor' 失败 '诊断异常，详情见 brew-check.log'; fi
+  fi
+}
+
+verify_listener() {
+  local label="$1" port="$2" listeners
+  if listeners=$(lsof -nP -a -iTCP:"${port}" -sTCP:LISTEN -Fn 2>/dev/null) && [[ ${listeners} == *$'\nn'* ]]; then
+    printf '%s\n' "${listeners}"
+    if printf '%s\n' "${listeners}" | awk -v p="${port}" '/^n/ {seen=1; if($0!="n127.0.0.1:"p && $0!="n[::1]:"p && $0!="n::1:"p) bad=1} END{exit !(seen && !bad)}'; then
+      record "${label}监听" 成功 "已核查 ${port}，仅回环地址"
+    else record "${label}监听" 失败 "检测到非回环监听 ${port}；保留现有配置，请手工检查网络绑定"; fi
+  else record "${label}监听" 部分完成 "未读取到 ${port} 监听信息，可能服务未启动或权限不足；不宣称已验证绑定范围"; fi
+}
+verify_existing_mysql() {
+  if ! command -v mysql >/dev/null; then
+    record MySQL 待人工操作 '已有数据/监听但缺少 mysql 客户端；保留账户和数据，先补齐客户端'
+  elif MYSQL_PWD=root mysql --no-defaults --connect-timeout=3 --protocol=tcp -h 127.0.0.1 -P 3306 -u root -Nse 'SELECT VERSION(),CURRENT_USER();'; then
+    record MySQL 成功 '复用已有服务：指定账户 TCP 登录和 SQL 通过；未重置密码、未重启、未要求更换服务端版本'
+  else record MySQL 待人工操作 '已有服务的指定账户登录未通过；保留数据/认证，可用 mysql -h 127.0.0.1 -u root -p 检查原账户，不自动重置'; fi
+  verify_listener MySQL 3306
+}
+verify_existing_redis() {
+  if command -v redis-cli >/dev/null && [[ $(redis-cli -t 3 -h 127.0.0.1 ping 2>/dev/null) == PONG ]]; then
+    record Redis 成功 '复用已有服务：PONG；未改配置、未重启'
+  else record Redis 待人工操作 '已有 Redis 未通过 PING（可能未启动或要求认证）；保留配置，检查原服务和凭据'; fi
+  verify_listener Redis 6379
 }
 
 RUN_DIR="${ROOT}/logs/${STAMP}-jobs"
@@ -219,13 +263,18 @@ job_ok() {
   return 1
 }
 prefetch() {
-  local kind="$1" concurrency=${FETCH_CONNECTIONS}; shift
+  local kind="$1" concurrency=${FETCH_CONNECTIONS} dep
+  local dependencies=()
+  shift
   if [[ ${kind} == formula ]]; then concurrency=${FORMULA_CONNECTIONS}; fi
   [[ $# -gt 0 ]] || return 0
   # Download only. Installs always stay in the foreground, one process at a time.
   # Formula prefetch is joined before any formula install to avoid cache locks.
   if [[ ${kind} == formula ]]; then
-    if HOMEBREW_DOWNLOAD_CONCURRENCY=${concurrency} brew fetch --deps --formula "$@"; then return 0; fi
+    if brew deps --union --missing --formula "$@" > "${TMP}/runtime-deps.txt"; then
+      while IFS= read -r dep; do [[ -z ${dep} ]] || dependencies[${#dependencies[@]}]=${dep}; done < "${TMP}/runtime-deps.txt"
+    else record '预下载依赖' 部分完成 '运行时依赖查询失败，只预下载目标公式；安装时由 Homebrew 解析'; fi
+    if HOMEBREW_DOWNLOAD_CONCURRENCY=${concurrency} brew fetch --formula "$@" ${dependencies[@]+"${dependencies[@]}"}; then return 0; fi
   else
     if HOMEBREW_DOWNLOAD_CONCURRENCY=${concurrency} brew fetch --cask "$@"; then return 0; fi
   fi
@@ -268,6 +317,7 @@ fi
 }
 
 stage_redis() {
+if [[ -f "${ROOT}/state/redis-preexisting" && ! -f "${ROOT}/state/redis-owned" ]]; then verify_existing_redis; return 0; fi
 if [[ -x "${PREFIX}/opt/redis/bin/redis-server" ]]; then
   if [[ -f "${ROOT}/state/redis-owned" ]] || { [[ ! -f "${ROOT}/state/redis-preexisting" ]] && ! lsof -nP -iTCP:6379 -sTCP:LISTEN >/dev/null 2>&1 && ! brew services list | awk '$1=="redis"&&$2=="started"{found=1} END{exit !found}'; }; then
     mkdir -p "${ROOT}/state/redis"
@@ -282,13 +332,15 @@ EOF
     touch "${ROOT}/state/redis-owned"
     launch_service redis "${PREFIX}/opt/redis/bin/redis-server" "${ROOT}/configs/redis.conf"
     sleep 2
-    if [[ $(redis-cli -h 127.0.0.1 ping) == PONG ]]; then record Redis 成功 '127.0.0.1:6379，PONG'; else record Redis 失败 '查看服务日志'; fi
-  else record Redis 部分完成 '发现已有服务，未修改配置；请核查绑定地址'; fi
+    if [[ $(redis-cli -t 3 -h 127.0.0.1 ping) == PONG ]]; then record Redis 成功 '127.0.0.1:6379，PONG'; else record Redis 失败 '查看服务日志'; fi
+    verify_listener Redis 6379
+  else verify_existing_redis; fi
 fi
 
 }
 
 stage_mysql() {
+if [[ -f "${ROOT}/state/mysql-preexisting" && ! -f "${ROOT}/state/mysql-owned" ]]; then verify_existing_mysql; return 0; fi
 if [[ -x "${PREFIX}/opt/mysql@8.4/bin/mysqld" ]]; then
   # Homebrew initializes prefix/var/mysql on install, so distinguish newly installed from preexisting data by checking before install (see snapshot).
   if [[ -f "${ROOT}/state/mysql-owned" ]]; then own_mysql=yes
@@ -325,7 +377,8 @@ SQL
       for ((i=0;i<30;i++)); do if MYSQL_PWD=root mysql --no-defaults --protocol=tcp -h 127.0.0.1 -u root -Nse 'SELECT 1'; then record MySQL 成功 'SQL 和服务重启后 TCP 认证通过；仅回环监听'; break; fi; sleep 1; done
       [[ ${i} -lt 30 ]] || record MySQL 失败 '重启后连接失败'
     else record MySQL 失败 '初始化/认证未通过；不会尝试重置已有密码'; fi
-  else record MySQL 待人工操作 '发现已有数据/3306 监听，保留；用 mysql -u root -p 检查后人工处理'; fi
+    verify_listener MySQL 3306
+  else verify_existing_mysql; fi
 fi
 
 }
@@ -418,7 +471,11 @@ if command -v flutter >/dev/null; then
     record Android 待人工操作 '执行 flutter doctor --android-licenses 阅读许可；在 Android Studio SDK Manager 补齐 doctor 要求的 SDK/Build Tools，再 flutter build apk --debug'
   else record Android 待人工操作 '启动 Android Studio，完成 Setup Wizard，在 SDK Manager 安装 Command-line Tools/latest、SDK Platform、Build Tools；然后 flutter doctor --android-licenses'; fi
   if flutter doctor -v; then record 'Flutter doctor' 部分完成 '诊断已执行；具体平台以构建/许可状态为准'; else record 'Flutter doctor' 待人工操作 '检查诊断日志中的平台依赖/许可'; fi
-  record iOS 待人工操作 '安装 Xcode/iOS Platform/模拟器后 flutter build ios --simulator；真机签名需 Apple 账号'
+  if [[ -d /Applications/Xcode.app ]]; then
+    if xcrun simctl list runtimes > "${TMP}/ios-runtimes.txt" 2>&1 && grep -E 'iOS' "${TMP}/ios-runtimes.txt" | grep -vE 'unavailable|not available' >/dev/null; then
+      record iOS 部分完成 '完整 Xcode 和可用 iOS runtime 已检测到；未执行模拟器构建。执行 finish-platforms.sh apple 完成实际构建；真机签名需账号'
+    else record iOS 待人工操作 '完整 Xcode 已存在，但未检测到可用 iOS runtime；在 Xcode Settings > Components 安装后运行 finish-platforms.sh apple'; fi
+  else record iOS 待人工操作 '尚未发现完整 Xcode；从 App Store 安装并完成首次组件配置'; fi
 fi
 
 }
@@ -439,9 +496,19 @@ fi
 export PATH="${HOME}/Developer/flutter/bin:/Applications/Docker.app/Contents/Resources/bin:${PREFIX}/opt/node@24/bin:${PREFIX}/opt/mysql@8.4/bin:${PREFIX}/opt/python@3.13/bin:${PATH}"
 printf 'export PATH="${HOME}/Developer/flutter/bin:/Applications/Docker.app/Contents/Resources/bin":%q:%q:%q:${PATH}\n' "${PREFIX}/opt/node@24/bin" "${PREFIX}/opt/mysql@8.4/bin" "${PREFIX}/opt/python@3.13/bin" >> "${ENVFILE}"
 PY="${PREFIX}/opt/python@3.13/bin/python3.13"
+POD_REUSED=no
+if command -v pod >/dev/null && pod --version > "${TMP}/existing-pod.txt" 2>&1; then
+  POD_REUSED=yes
+  note '复用已有可运行的 CocoaPods，避免不必要的 Ruby 升级'
+fi
 FORMULAE=(python@3.13 uv redis mysql@8.4 git node@24 fzf starship zsh-autosuggestions zsh-syntax-highlighting cocoapods)
 MISSING_FORMULAE=(); MISSING_APPS=(); MISSING_DOCKER=()
-for f in "${FORMULAE[@]}"; do brew list --formula "${f}" >/dev/null 2>&1 || MISSING_FORMULAE[${#MISSING_FORMULAE[@]}]=${f}; done
+for f in "${FORMULAE[@]}"; do
+  if [[ ${f} == cocoapods && ${POD_REUSED} == yes ]]; then continue; fi
+  if [[ ${f} == mysql@8.4 && -f "${ROOT}/state/mysql-preexisting" && ! -f "${ROOT}/state/mysql-owned" ]]; then continue; fi
+  if [[ ${f} == redis && -f "${ROOT}/state/redis-preexisting" && ! -f "${ROOT}/state/redis-owned" ]]; then continue; fi
+  brew list --formula "${f}" >/dev/null 2>&1 || MISSING_FORMULAE[${#MISSING_FORMULAE[@]}]=${f}
+done
 APP_ENTRIES=('android-studio|Android Studio' 'cursor|Cursor' 'google-chrome|Google Chrome' 'wechat|WeChat' 'feishu|Feishu' 'mos|Mos')
 for entry in "${APP_ENTRIES[@]}"; do
   cask=${entry%%|*}; app=${entry#*|}
@@ -468,17 +535,22 @@ if [[ ! -x ${PY} ]]; then record Flutter 失败 'Python 引导失败，未启动
 ensure_formula uv || true
 if [[ ${PYTHON_STARTED} == no && -x ${PY} ]] && command -v uv >/dev/null; then start_job python stage_uv; PYTHON_STARTED=yes; fi
 if [[ ${PYTHON_STARTED} == no ]]; then record uv工作流 失败 '缺少 Python/uv，未启动验证'; fi
-ensure_formula redis || true
+if [[ ! -f "${ROOT}/state/redis-preexisting" || -f "${ROOT}/state/redis-owned" ]]; then ensure_formula redis || true; fi
 if [[ -x ${PY} ]]; then start_job redis stage_redis; fi
-ensure_formula mysql@8.4 || true
+if [[ ! -f "${ROOT}/state/mysql-preexisting" || -f "${ROOT}/state/mysql-owned" ]]; then ensure_formula mysql@8.4 || true; fi
 if [[ -x ${PY} ]]; then start_job mysql stage_mysql; fi
-for f in git node@24 fzf starship zsh-autosuggestions zsh-syntax-highlighting cocoapods; do ensure_formula "${f}" || true; done
+for f in git node@24 fzf starship zsh-autosuggestions zsh-syntax-highlighting cocoapods; do
+  if [[ ${f} == cocoapods && ${POD_REUSED} == yes ]]; then continue; fi
+  ensure_formula "${f}" || true
+done
 # One foreground installer; the downloads have been overlapping ROS/Flutter/SQL/Python.
 wait_job fetch-apps
 for entry in "${APP_ENTRIES[@]}"; do install_cask "${entry%%|*}" "${entry#*|}"; done
 for cmd in git uv node npm; do runcheck "${cmd} 版本" "${cmd}" --version; done
 # Read-only diagnostics run once installs are complete, so transient installs don't mislead doctor.
-start_job brew-check runcheck 'Homebrew doctor（警告也会返回非零）' brew doctor
+runcheck CocoaPods pod --version
+if [[ -x "${PREFIX}/opt/ruby/bin/ruby" ]]; then runcheck Ruby "${PREFIX}/opt/ruby/bin/ruby" --version; fi
+start_job brew-check stage_brew_doctor
 runcheck 'Homebrew 查询' brew info git
 wait_job flutter-web
 if job_ok flutter-web; then
