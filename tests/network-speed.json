@@ -1,0 +1,14 @@
+[
+  {
+    "url": "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.7-stable.zip",
+    "exit": 28,
+    "measurement": "206 25.009841 80522 2013845",
+    "error": "curl: (28) Operation timed out after 25009 milliseconds with 2013845 out of 16777216 bytes received\n"
+  },
+  {
+    "url": "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.7-stable.zip",
+    "exit": 0,
+    "measurement": "206 5.631005 2979435 16777216",
+    "error": ""
+  }
+]

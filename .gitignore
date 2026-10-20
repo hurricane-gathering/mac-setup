@@ -1,0 +1,9 @@
+# Runtime data and build artifacts
+tests/live/
+tests/__pycache__/
+tests/last-mock-run.log
+logs/
+backups/
+state/
+.venv/
+.DS_Store

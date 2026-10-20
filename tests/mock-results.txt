@@ -1,0 +1,69 @@
+PASS syntax setup.sh
+PASS syntax verify.sh
+PASS syntax finish-platforms.sh
+PASS syntax ros.sh
+PASS full fresh mock run
+PASS fresh database initialization executed
+PASS ROS verification reached
+PASS rerun installed entrypoint
+PASS launchd plist mysql
+PASS launchd plist redis
+PASS no duplicate source lines .zprofile
+PASS no duplicate source lines .zshrc
+PASS CLT exit code
+PASS early failure preserves env
+PASS failed web build gives failure exit
+PASS lock cleaned after failed run
+PASS uv install failure propagates to report
+PASS preexisting database skip
+PASS existing MySQL is not reset
+PASS existing Redis is preserved
+PASS fresh Flutter SDK download and checksum
+PASS SDK extraction executable
+PASS bad SDK checksum stops installation
+PASS checksum failure preserves active env
+PASS checksum failure never extracts SDK
+PASS concurrent lock rejected
+PASS invalid mode rejected
+PASS SDK throughput selector auto
+PASS SDK throughput selector cn
+PASS SDK throughput selector global
+PASS live release parser arm64
+PASS live release parser x86_64
+{
+  "passed": 32,
+  "tests": [
+    "syntax setup.sh",
+    "syntax verify.sh",
+    "syntax finish-platforms.sh",
+    "syntax ros.sh",
+    "full fresh mock run",
+    "fresh database initialization executed",
+    "ROS verification reached",
+    "rerun installed entrypoint",
+    "launchd plist mysql",
+    "launchd plist redis",
+    "no duplicate source lines .zprofile",
+    "no duplicate source lines .zshrc",
+    "CLT exit code",
+    "early failure preserves env",
+    "failed web build gives failure exit",
+    "lock cleaned after failed run",
+    "uv install failure propagates to report",
+    "preexisting database skip",
+    "existing MySQL is not reset",
+    "existing Redis is preserved",
+    "fresh Flutter SDK download and checksum",
+    "SDK extraction executable",
+    "bad SDK checksum stops installation",
+    "checksum failure preserves active env",
+    "checksum failure never extracts SDK",
+    "concurrent lock rejected",
+    "invalid mode rejected",
+    "SDK throughput selector auto",
+    "SDK throughput selector cn",
+    "SDK throughput selector global",
+    "live release parser arm64",
+    "live release parser x86_64"
+  ]
+}
