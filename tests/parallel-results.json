@@ -1,0 +1,6 @@
+{
+  "parallel_seconds": 3.778,
+  "serial_seconds": 7.571,
+  "simulated_workload": true,
+  "reason": "controlled mock command delays; not an estimate of fresh Mac installation"
+}

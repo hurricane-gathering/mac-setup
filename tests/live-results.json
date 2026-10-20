@@ -2,31 +2,31 @@
   {
     "test": "mysql-isolated-engine",
     "ok": true,
-    "seconds": 7.94,
+    "seconds": 10.64,
     "detail": "MySQL 8.4 isolated Docker SQL/TCP auth and restart persistence passed; native launchd not exercised.\n8.4.11\troot@%\n8.4.11\troot@%\n"
   },
   {
     "test": "uv-real-project",
     "ok": true,
-    "seconds": 0.1,
-    "detail": "Audited 1 package in 11ms\n26.3\n"
+    "seconds": 0.15,
+    "detail": "Audited 1 package in 20ms\n26.3\n"
   },
   {
     "test": "redis-native-isolated",
     "ok": true,
-    "seconds": 0.24,
+    "seconds": 0.18,
     "detail": "PONG\ntemporary Unix socket; public TCP disabled"
   },
   {
     "test": "ROS-real-container",
     "ok": true,
-    "seconds": 3.54,
-    "detail": "09d355591118994a1d7d142fc10b5e5af66f3e340311bfd27a511f6f6f889366\nusage: ros2 [-h] [--use-python-default-buffering]\n            Call `ros2 <command> -h` for more detailed usage. ...\n\nros2 is an extensible command-line tool for ROS 2.\n\noptions:\n  -h, --help            show this help message and exit\n  --use-python-default-buffering\n                        Do not force line buffering in stdout and instead use\n                        the python default buffering, which might be affected\n                        by PYTHONUNBUFFERED/-u and depends on whatever stdout\n                        is interactive or not\n\nCommands:\n  action     Various action related sub-commands\n  bag        Various rosbag related sub-commands\n  component  Various component related sub-commands\n  daemon     Various daemon related sub-commands\n  doctor     Check ROS setup and other potential issues\n  interface  Show information about ROS interfaces\n  launch     Run a launch file\n  lifecycle  Various lifecycle related sub-commands\n  multicast  Various multicast related sub-commands\n  node       Various node related sub-commands\n  param      Various param related sub-commands\n  pkg        Various package related sub-commands\n  plugin     Various plugin related sub-commands\n  run        Run a package specific executable\n  security   Various security related sub-commands\n  service    Various service related sub-commands\n  topic      Various topic related sub-commands\n  wtf        Use `wtf` as alias to `doctor`\n\n  Call `ros2 <command> -h` for more detailed usage.\n\nstop/start and recreated-container bind persistence passed"
+    "seconds": 3.83,
+    "detail": "3f2844ae68dc801d2d4b658c316640a7572f0e4a9190f7727d624b502dcfb459\nusage: ros2 [-h] [--use-python-default-buffering]\n            Call `ros2 <command> -h` for more detailed usage. ...\n\nros2 is an extensible command-line tool for ROS 2.\n\noptions:\n  -h, --help            show this help message and exit\n  --use-python-default-buffering\n                        Do not force line buffering in stdout and instead use\n                        the python default buffering, which might be affected\n                        by PYTHONUNBUFFERED/-u and depends on whatever stdout\n                        is interactive or not\n\nCommands:\n  action     Various action related sub-commands\n  bag        Various rosbag related sub-commands\n  component  Various component related sub-commands\n  daemon     Various daemon related sub-commands\n  doctor     Check ROS setup and other potential issues\n  interface  Show information about ROS interfaces\n  launch     Run a launch file\n  lifecycle  Various lifecycle related sub-commands\n  multicast  Various multicast related sub-commands\n  node       Various node related sub-commands\n  param      Various param related sub-commands\n  pkg        Various package related sub-commands\n  plugin     Various plugin related sub-commands\n  run        Run a package specific executable\n  security   Various security related sub-commands\n  service    Various service related sub-commands\n  topic      Various topic related sub-commands\n  wtf        Use `wtf` as alias to `doctor`\n\n  Call `ros2 <command> -h` for more detailed usage.\n\nstop/start and recreated-container bind persistence passed"
   },
   {
     "test": "flutter-real-web-build",
     "ok": true,
-    "seconds": 13.98,
-    "detail": "build_seconds=13.98\nCompiling lib/main.dart for the Web...                          \nFont asset \"CupertinoIcons.ttf\" was tree-shaken, reducing it from 257628 to 1472 bytes (99.4% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.\nFont asset \"MaterialIcons-Regular.otf\" was tree-shaken, reducing it from 1645184 to 7800 bytes (99.5% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.\nCompiling lib/main.dart for the Web...                             13.6s\n✓ Built build/web\nWasm dry run succeeded. Consider building and testing your application with the `--wasm` flag. See docs for more info: https://docs.flutter.dev/platform-integration/web/wasm\nUse --no-wasm-dry-run to disable these warnings.\n"
+    "seconds": 15.55,
+    "detail": "build_seconds=15.55\nCompiling lib/main.dart for the Web...                          \nFont asset \"CupertinoIcons.ttf\" was tree-shaken, reducing it from 257628 to 1472 bytes (99.4% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.\nFont asset \"MaterialIcons-Regular.otf\" was tree-shaken, reducing it from 1645184 to 7800 bytes (99.5% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.\nCompiling lib/main.dart for the Web...                             15.0s\n✓ Built build/web\nWasm dry run succeeded. Consider building and testing your application with the `--wasm` flag. See docs for more info: https://docs.flutter.dev/platform-integration/web/wasm\nUse --no-wasm-dry-run to disable these warnings.\n"
   }
 ]

@@ -20,6 +20,21 @@ PASS existing MySQL is not reset
 PASS existing Redis is preserved
 PASS fresh Flutter SDK download and checksum
 PASS SDK extraction executable
+PASS parallel DAG completes
+PASS Flutter and uv actually overlap
+PASS Flutter overlaps foreground app install
+PASS Homebrew installs never overlap
+PASS independent prefetch batches overlap
+PASS workers have separate reports and logs
+PASS each task timeline is recorded
+PASS serial compatibility mode
+PASS serial mode has no Flutter/uv overlap
+PASS out-of-range worker budget rejected
+PASS invalid download budget rejected
+PASS cancellation reaches active descendant
+PASS TERM preserves interrupted exit code
+PASS TERM releases global lock
+PASS TERM kills nested download/process
 PASS bad SDK checksum stops installation
 PASS checksum failure preserves active env
 PASS checksum failure never extracts SDK
@@ -31,7 +46,7 @@ PASS SDK throughput selector global
 PASS live release parser arm64
 PASS live release parser x86_64
 {
-  "passed": 32,
+  "passed": 47,
   "tests": [
     "syntax setup.sh",
     "syntax verify.sh",
@@ -55,6 +70,21 @@ PASS live release parser x86_64
     "existing Redis is preserved",
     "fresh Flutter SDK download and checksum",
     "SDK extraction executable",
+    "parallel DAG completes",
+    "Flutter and uv actually overlap",
+    "Flutter overlaps foreground app install",
+    "Homebrew installs never overlap",
+    "independent prefetch batches overlap",
+    "workers have separate reports and logs",
+    "each task timeline is recorded",
+    "serial compatibility mode",
+    "serial mode has no Flutter/uv overlap",
+    "out-of-range worker budget rejected",
+    "invalid download budget rejected",
+    "cancellation reaches active descendant",
+    "TERM preserves interrupted exit code",
+    "TERM releases global lock",
+    "TERM kills nested download/process",
     "bad SDK checksum stops installation",
     "checksum failure preserves active env",
     "checksum failure never extracts SDK",

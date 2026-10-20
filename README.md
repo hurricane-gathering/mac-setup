@@ -39,11 +39,36 @@ bash mac-setup/scripts/setup.sh auto
 
 代理不会被脚本写入配置。Docker Engine 拉镜像需要单独在 Docker Desktop > Settings > Resources > Proxies 配置代理；终端代理不能替代。没有有效外网或代理时，Docker Hub、Google Android 下载、部分应用下载仍可能失败，任何脚本都无法保证在所有国内外网络中完成。脚本不会添加不可追溯的公共 Docker 加速站，也不会关闭 TLS 校验、Gatekeeper 或 SIP。
 
+## 默认启用依赖驱动的并行调度
+
+上面的 `auto` 命令已经使用并行方案；`auto` 仍表示自动选源，无需额外添加并行开关。
+
+| 工作 | 并行与依赖关系 |
+|---|---|
+| Homebrew 公式/依赖、Docker Desktop、其他桌面应用 | 三组并行预下载，复用 Homebrew 缓存及校验机制 |
+| Docker / ROS | Docker 安装后立即启动，拉镜像和容器验证与其余工作重叠 |
+| Flutter SDK / Web | Python 就绪即启动；已有 Python 时不等其他公式装完；下载、校验、解压、Web 构建与其他任务重叠 |
+| uv / Python、Redis、MySQL | 各自依赖就绪后独立后台运行 |
+| Flutter macOS / Android 配置与 doctor | 等待 Flutter SDK/Web 任务结束，并等待 CocoaPods 和 Android Studio 安装完成，避免依赖和 SDK 锁冲突 |
+| Homebrew 安装、shell 配置落盘 | 由主进程串行处理；预下载不与同组安装争用下载锁；所有 worker 结束后才合并环境配置 |
+
+默认根据硬件选择并发预算：CPU 少于 4 线程时为 2；其他机器内存不足 12GiB 为 4；内存至少 12GiB 为 6。预算包含一个前台安装位置，其余用于后台任务。并发不等于同时启动多个 Homebrew 安装。
+
+高速网络、内存充裕时，可用这一条命令提高上限（仍保留安装锁）：
+
+```bash
+MAC_SETUP_JOBS=8 MAC_SETUP_DOWNLOADS=8 bash mac-setup/scripts/setup.sh auto
+```
+
+`MAC_SETUP_JOBS` 和 `MAC_SETUP_DOWNLOADS` 均接受 1–8。前者限制阶段任务并发，设为 1 即串行兼容模式；后者默认 4，用于 Homebrew 下载队列，并分摊给三组预下载，每组至少一个连接。Docker、Flutter 测速等有独立的连接，因此它不是整个系统的 TCP 连接总上限。增大并发只在带宽/CPU 尚未饱和时有收益。
+
+每个任务独立写入 `logs/<本轮标识>-jobs/<任务>.log`、`.tsv` 和 `.env`；主日志显示启动/完成/失败，主进程合并结果。`timeline.tsv` 记录开始、结束及退出码。任一任务失败不丢弃其他任务结果，最终仍返回失败；缺少依赖的后续步骤会标注未执行。按 Ctrl-C 会终止受管后台任务及其下载子进程，并释放运行锁；已经完成的安装/服务不自动卸载。
+
 ## 自动完成的范围
 
 - 检查系统、架构、磁盘、工具和已有 shell 文件；拒绝 Rosetta 终端和 root 用户。
 - 安装或复用 Cursor、Chrome、微信、飞书、Docker Desktop、Mos、Android Studio；读取应用版本并请求启动。请求启动不代表完成登录和 GUI 功能验收。
-- Homebrew 安装工具，尽量使用其预编译 bottle，下载并发 4，不并行执行多个 Homebrew 安装。已安装公式不自动升级。失败公式最多切回官方源重试一次。
+- Homebrew 使用预编译 bottle；公式和依赖、Docker Desktop、其他 Cask 分组并行预下载，安装始终由前台单个进程执行。已安装公式不自动升级；预下载失败不阻断其他任务，前台公式安装最多切回官方源重试一次。
 - 默认选 Node 24 LTS、MySQL 8.4 LTS；Node 路径独立，不删除其他版本。未安装版本管理器；项目需多版本时另行选用 fnm 等工具。npm registry 不修改。
 - uv 自身和 Python 3.13 通过 Homebrew 安装，避免把 PyPI 镜像错误地当成 Python 解释器下载镜像。建立独立 Python 测试项目和虚拟环境，安装并导入 packaging。已有 uv 配置保留；无已有用户配置时写入本工具的环境文件。
 - 全新数据库使用独立数据目录和配置，Redis/MySQL 只绑定 127.0.0.1，MySQL 关闭 X Protocol。检测到已有数据、CLI 或占用端口时保留并报告人工处理，不重置旧 root 密码。MySQL 使用默认现代认证，不降级认证插件；旧客户端可能需要升级。
@@ -77,9 +102,9 @@ bash mac-setup/scripts/setup.sh auto
 
 `configs/env.zsh` 为工具源和 PATH；`configs/terminal.zsh` 为终端插件；`configs/mysql.cnf`、`redis.conf` 为受管数据库配置；`state/` 包含数据库、测试项目和管理标记；`backups/` 保存修改前备份；`logs/时间.tsv` 为本轮状态，配套 `.log` 和 `-versions.txt`。
 
-成功表示该项列出的检查已执行通过；部分完成/待人工操作不等于可用性全部验收。脚本遇关键失败会退出并记录行号；检查日志、修复网络或权限后重跑。各阶段失败不代表自动回滚安装过的软件。不要删除 state 中的数据库或管理标记来“修复”。已在现有 Mac 完成系统 Bash 3.2 隔离回归及 uv、Redis、ROS、MySQL 隔离引擎、Flutter Web 真实集成测试；未完成全新 Mac 端到端实装。详见 TEST_REPORT.md，最终以目标机报告为准。
+成功表示该项列出的检查已执行通过；部分完成/待人工操作不等于可用性全部验收。后台任务遇关键失败会在独立日志记录行号，其他独立任务继续；主进程汇总所有结果后以非零状态退出。引导阶段失败会立即退出。检查日志、修复网络或权限后重跑；失败不代表自动回滚安装过的软件。不要删除 state 中的数据库或管理标记来“修复”。已在现有 Mac 完成系统 Bash 3.2 隔离回归及 uv、Redis、ROS、MySQL 隔离引擎、Flutter Web 真实集成测试；未完成全新 Mac 端到端实装。详见 TEST_REPORT.md，最终以目标机报告为准。
 
-进程中断时可能留下 `state/lock`；确认没有另一个安装进程后用 `rmdir ~/Developer/mac-setup/state/lock` 清除。不要同时运行两份脚本。
+可正常处理的中断会自动清理任务与运行锁；断电或 SIGKILL 仍可能留下 `state/lock`；确认没有另一个安装进程后用 `rmdir ~/Developer/mac-setup/state/lock` 清除。不要同时运行两份脚本。
 
 ## 常用命令
 
